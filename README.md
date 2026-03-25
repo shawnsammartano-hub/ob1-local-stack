@@ -15,34 +15,71 @@ A complete Model Context Protocol (MCP) server deployment enabling semantic memo
 
 ## Architecture
 
+**Two Node.js Servers:**
+1. **Remote MCP Server** (`server.mjs`) - Port 3101, handles all MCP requests, embeddings, database  
+2. **Local Proxy Server** (`proxy-server.js`) - Claude Desktop only, runs locally, forwards to server.mjs
+
+**Two Different Paths:**
+- **Perplexity Comet:** Direct HTTPS → Cloudflare Tunnel → server.mjs (remote)
+- **Claude Desktop:** stdio → proxy-server.js (local) → server.mjs (local OR remote, no Cloudflare)
+
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    CLIENTS (Multiple Platforms)                  │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                   │
-│  Perplexity Comet                    Claude Desktop              │
-│  (Direct HTTPS + API Key)            (stdio → Local Proxy)       │
+┌──────────────────────────────────────────────────────────────────┐
+│                         CLIENT LAYER                             │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Claude Desktop                    Perplexity Comet              │
+│  (stdio MCP client)                 (Direct HTTPS)               │
 │         │                                    │                   │
-│         └────────────┬───────────────────────┘                   │
-│                      ↓                                           │
-├─────────────────────────────────────────────────────────────────┤
-│              Cloudflare Tunnel (HTTPS + Security)                │
-│              - Access Policy: Bypass for /mcp path              │
-│              - WAF: Skip all for PerplexityBot UA                │
-├─────────────────────────────────────────────────────────────────┤
-│                   Open Brain MCP Server                          │
-│                   (Node.js, port 3101)                           │
-│                   - Streamable HTTP (/mcp)                       │
-│                   - SSE (/sse)                                   │
-│                   - Multi-auth: query param, header, Bearer      │
-├─────────────────────────────────────────────────────────────────┤
-│                        Backend Services                          │
-│  ┌──────────────────┐           ┌─────────────────┐            │
-│  │ Ollama (11434)   │           │ Supabase        │            │
-│  │ nomic-embed-text │◄──────────┤ Vector Storage  │            │
-│  │ Embeddings       │           │ thoughts table  │            │
-│  └──────────────────┘           └─────────────────┘            │
-└─────────────────────────────────────────────────────────────────┘
+│         │                                    │                   │
+│  ┌────────────────────────┐                  │                   │
+│  │ Local Proxy Server     │                  │                   │
+│  │ proxy-server.js        │                  │                   │
+│  │ Node.js (localhost)    │                  │                   │
+│  │ stdio ↔ HTTP(S) bridge │                  │                   │
+│  └──────┬─────────────────┘                  │                   │
+│         │                                    │                   │
+│         │Direct HTTP(S)                      │                   │
+│         │(no Cloudflare)                     │                   │
+│         │                                    ↓                   │
+├─────────│────────────────────────────────────────────────────────┤
+│         │    Cloudflare Tunnel (Perplexity ONLY)                 │
+│         │    https://your-subdomain.your-domain.com              │
+│         │    - Access Policy: Bypass for /mcp path               │
+│         │    - WAF: Skip security for PerplexityBot UA           │
+│         │    - IP Whitelist: ASN AS16509 (AWS/Perplexity)        │
+│         │                                           │            │
+│─────────│───────────────────────────────────────────│────────────┤
+│         ↓         YOUR COMPUTER/SERVER (Port 3101)  ↓            │
+│  ┌───────────────────────────────────────────────────────────┐   │
+│  │          Remote MCP Server (server.mjs)                   │   │
+│  │          Node.js Express Server                           │   │
+│  │          - Streamable HTTP: /mcp                          │   │
+│  │          - SSE: /sse                                      │   │
+│  │          - Health: /health                                │   │
+│  │          - Multi-auth: query param, header, Bearer token  │   │
+│  └────────────────────────┬──────────────────────────────────┘   │
+│                           │                                      │
+│              ┌────────────┴────────────┐                         │
+│              ↓                         ↓                         │
+│  ┌────────────────────┐   ┌────────────────────┐                 │
+│  │ Ollama             │   │ Supabase           │                 │
+│  │ Port: 11434        │   │ (Cloud PostgreSQL) │                 │
+│  │ Model:             │   │ - pgvector ext     │                 │
+│  │ nomic-embed-text   │   │ - thoughts table   │                 │
+│  │ Embeddings (768d)  │   │ - 768-dim vectors  │                 │
+│  └────────────────────┘   └────────────────────┘                 │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+**Claude Desktop Proxy Configuration:**
+```javascript
+// proxy-server.js can point to:
+const REMOTE_URL = 'http://localhost:3101/mcp';  // Local server
+// OR
+const REMOTE_URL = 'https://your-domain.com/mcp';  // Remote via Cloudflare
+// OR  
+const REMOTE_URL = 'https://direct-ip:3101/mcp';  // Remote direct (no Cloudflare)
 ```
 
 ## The Challenge: Multi-Client MCP Deployment

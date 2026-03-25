@@ -44,52 +44,74 @@
 
 ## Architecture Overview
 
+**Two Node.js Servers:**
+1. **Remote MCP Server** (`server.mjs`) - Port 3101, runs on your server/PC, handles all MCP logic
+2. **Local Proxy Server** (`proxy-server.js`) - Runs on Claude Desktop user's machine, stdio ↔ HTTP(S) bridge
+
+**Two Different Connection Paths:**
+- **Perplexity Comet:** Direct HTTPS → Cloudflare Tunnel → server.mjs (remote)
+- **Claude Desktop:** stdio → proxy-server.js (local) → server.mjs (direct connection, no Cloudflare)
+
 ```
 ┌─────────────────────────────────────────────────────────┐
-│              CLIENT APPLICATIONS                         │
-│  ┌──────────────────┐    ┌───────────────────┐         │
-│  │ Perplexity Comet │    │ Claude Desktop    │         │
-│  │ (Direct HTTPS)   │    │ (Local Proxy)     │         │
-│  └────────┬─────────┘    └────────┬──────────┘         │
+│              CLIENT APPLICATIONS                        │
+│  ┌──────────────────┐    ┌───────────────────┐          │
+│  │ Perplexity Comet │    │ Claude Desktop    │          │
+│  │ (Direct HTTPS)   │    │ (stdio client)    │          │
+│  └────────┬─────────┘    └────────┬──────────┘          │
 │           │                       │                     │
-│           │  ┌───────────────────┘                     │
-│           │  │                                          │
-└───────────┼──┼──────────────────────────────────────────┘
-            │  │
-            ↓  ↓
+│           │                       ↓                     │
+│           │             ┌──────────────────────┐        │
+│           │             │ LOCAL PROXY SERVER   │        │
+│           │             │ proxy-server.js      │        │
+│           │             │ Node.js (localhost)  │        │
+│           │             │ stdio ↔ HTTP(S)      │        │
+│           │             └────────┬─────────────┘        │
+│           │                      │                      │
+│           │                      │ Direct HTTP(S)       │
+│           │                      │ (no Cloudflare)      │
+│           ↓                      ↓                      │
+└───────────┼──────────────────────┼──────────────────────┘
+            │                      │
+            ↓                      │_
+┌─────────────────────────────────┐ │
+│ CLOUDFLARE TUNNEL               │ │
+│ (Perplexity ONLY)               │ │
+│ your-subdomain.your-domain.com  │ │
+│ - Access: Bypass /mcp           │ │
+│ - WAF: Skip PerplexityBot       │ │
+│ - IP: ASN AS16509               │ │
+└───────────────────────┬─────────┘ │
+                        │           │
+                        └───────────┘
+                                ↓
 ┌─────────────────────────────────────────────────────────┐
-│      CLOUDFLARE TUNNEL (Public HTTPS Gateway)            │
-│      https://your-subdomain.your-domain.com              │
-│      - Cloudflare Access: Bypass /mcp path              │
-│      - WAF: Skip security for PerplexityBot             │
-│      - IP Whitelist: ASN AS16509 (AWS/Perplexity)       │
-└───────────────────────┬─────────────────────────────────┘
-                        ↓
-┌─────────────────────────────────────────────────────────┐
-│          YOUR COMPUTER / SERVER (Port 3101)              │
-│                                                          │
+│          YOUR SERVER/PC (Port 3101)                     │
+│          Can be: home PC, VPS, cloud server             │
+│                                                         │
 │  ┌────────────────────────────────────────────┐         │
-│  │   Open Brain MCP Server (server.mjs)       │         │
+│  │   REMOTE MCP SERVER (server.mjs)           │         │
+│  │   Node.js Express Server                   │         │
 │  │   - Streamable HTTP: /mcp                  │         │
-│  │   - SSE: /sse                               │         │
-│  │   - Health: /health                         │         │
+│  │   - SSE: /sse                              │         │
+│  │   - Health: /health                        │         │
 │  │   - Auth: API Key (query/header/bearer)    │         │
 │  └───────────┬────────────────────────────────┘         │
-│              │                                           │
+│              │                                          │
 │    ┌─────────┴──────────┐                               │
 │    ↓                    ↓                               │
-│  ┌──────────────┐   ┌─────────────────┐                │
-│  │   Ollama     │   │  Claude Proxy   │                │
-│  │ Port 11434   │   │ proxy-server.js │                │
-│  │ nomic-embed  │   │ (stdio→HTTPS)   │                │
-│  └──────────────┘   └─────────────────┘                │
+│  ┌──────────────┐   (Local or Remote)                   │
+│  │   Ollama     │                                       │
+│  │ Port 11434   │                                       │
+│  │ nomic-embed  │                                       │
+│  └──────────────┘                                       │
 └─────────────────────────────────────────────────────────┘
                         ↓
 ┌─────────────────────────────────────────────────────────┐
-│            SUPABASE (Cloud PostgreSQL)                   │
-│            - pgvector extension                          │
-│            - thoughts table (768-dim vectors)            │
-│            - match_thoughts() function                   │
+│            SUPABASE (Cloud PostgreSQL)                  │
+│            - pgvector extension                         │
+│            - thoughts table (768-dim vectors)           │
+│            - match_thoughts() function                  │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -277,7 +299,7 @@ node generate-keys.mjs
 
 Generated API Key:
 ────────────────────────────────────────────────────────────────────────────────
-*********************redacted***********************************
+88888888REDACTED88888888REDACTED88888888REDACTED88888888REDACTED
 ────────────────────────────────────────────────────────────────────────────────
 
 💡 Add this to your .env file as API_KEY=<key>
@@ -303,13 +325,14 @@ nano .env      # Linux/macOS
 ```env
 # Supabase Configuration (from Part 1, Step 1.4)
 SUPABASE_URL=https://xxxxxxxxxxxxx.supabase.co
-SUPABASE_KEY=........redacted.......................
+SUPABASE_KEY=88888888REDACTED88888888REDACTED8888888
+
 
 # Ollama Configuration
 OLLAMA_URL=http://localhost:11434
 
 # API Key (from Step 3.3)
-API_KEY=.....................redacted...................................
+API_KEY=88888888REDACTED88888888REDACTED88888888REDACTED88888888REDACTED
 
 # Server Port
 PORT=3101
@@ -334,18 +357,21 @@ echo ".env" >> .gitignore
 Windows PowerShell:
 ```powershell
 $env:SUPABASE_URL="https://xxxxx.supabase.co"
-$env:SUPABASE_KEY="..........."
+$env:SUPABASE_KEY="88888888REDACTED88888888..."
+
 $env:OLLAMA_URL="http://localhost:11434"
-$env:API_KEY="........."
+$env:API_KEY="a7f89d..."
+$env:API_KEY="88888888REDACTED88888888..."
 $env:PORT="3101"
 ```
 
 Linux/macOS:
 ```bash
 export SUPABASE_URL="https://xxxxx.supabase.co"
-export SUPABASE_KEY="..........."
+export SUPABASE_KEY="eyJhbGci..."
+export SUPABASE_KEY="88888888REDACTED88888888..."
 export OLLAMA_URL="http://localhost:11434"
-export API_KEY="........"
+export API_KEY="88888888REDACTED88888888..."
 export PORT="3101"
 ```
 
@@ -367,8 +393,8 @@ node server.mjs
 ```
 🧠 OB1 MCP Server
    Health:      http://localhost:3101/health
-   SSE:         http://localhost:3101/sse?key=.........
-   Streamable:  http://localhost:3101/mcp?key=.........
+   SSE:         http://localhost:3101/sse?key=88888888REDACTED88888888...
+   Streamable:  http://localhost:3101/mcp?88888888REDACTED88888888...
    Ollama:      http://localhost:11434
    Port:        3101
 ```
@@ -423,7 +449,7 @@ curl http://localhost:3101/mcp?key=YOUR_API_KEY \
 capture_thought called: Testing Open Brain server deployment
 Classified as: note
 Calling Ollama embed...
-Saved to Supabase: ........-....-....-....-............
+Saved to Supabase: 3fa85f64-5717-4562-b3fc-2c963f66afa6
 ```
 
 **If this works, your server is fully operational!**
@@ -785,6 +811,57 @@ Save this to my Open Brain: Testing Perplexity Comet integration on March 25, 20
    Calling Ollama embed...
    Saved to Supabase: <uuid>
    ```
+
+### Step 6.5: Configure Custom Instructions
+
+**Optional but highly recommended** for proactive memory usage.
+
+Go to **Settings** → **Personalization** → **Custom Instructions**
+
+**Paste this (1498 characters, within limit):**
+
+```
+You are my extreme-thoroughness research analyst. Mission: uncover truth, identify gaps, deliver complete intelligence.
+
+RESEARCH PROTOCOL:
+- DEFAULT to deep web search for ANY question needing current data. Don't wait for "research."
+- 3+ independent sources minimum. Hunt primary sources (filings, papers, official data).
+- When scraping sites/LinkedIn: expand ALL sections → extract entities (names, companies, tech) → trigger NEW searches on each → go 2-3 layers deep.
+- Flag info age: [2026], [2025], [OUTDATED]. Document what's NOT covered.
+- Complex requests: output research plan FIRST, then execute systematically.
+
+ANTI-SYCOPHANCY:
+- Present contradictions to my assumptions FIRST.
+- Separate: [FACT] data · [INTERPRETATION] analysis · [PREDICTION] inference
+- Tag confidence: [HIGH] converging sources · [MODERATE] gaps · [LOW] conflicting · [SPECULATION]
+- Flawed premise? "Your assumption [X] is wrong because [evidence]. Reality: [Y]"
+- Never soften bad news.
+
+OUTPUT RULES:
+Internal: Lead with answer. Dense bullets. Cite inline. End with "Gaps:" and "Next:"
+External (emails/posts): Anti-AI rules - vary sentence length, concrete examples, avoid "delve/navigate/robust/leverage," active voice, specifics not generalities, strategic imperfections.
+
+OPEN BRAIN (MCP):
+Auto-capture WITHOUT asking: research findings, my decisions, work context, personal context, patterns learned.
+Before answering: search_thoughts for past context.
+Tools: capture_thought(content), search_thoughts(query, threshold=0.7), browse_thoughts(limit), stats()
+
+CORE RULES:
+1. Never fake thoroughness. Admit gaps.
+2. Challenge flawed framing before answering.
+3. "Insufficient data" > confident BS.
+4. Think adversarially: what's the counter-argument?
+5. Anticipate what I need next.
+
+Relentless. Thorough. Brutally honest.
+```
+
+**What this does:**
+- Perplexity automatically searches your Open Brain before answering
+- Captures important information without asking
+- Maintains research standards and anti-sycophancy
+
+---
 
 ## Part 7: Claude Desktop
 
