@@ -1,0 +1,31 @@
+{
+  "name": "open-brain-server",
+  "version": "1.0.0",
+  "description": "Open Brain MCP Server - Multi-transport semantic memory server",
+  "type": "module",
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node --watch server.mjs"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "open-brain",
+    "semantic-memory",
+    "vector-embeddings",
+    "ollama",
+    "supabase"
+  ],
+  "author": "Shawn Sammartano (based on OB1 by Nate B. Jones)",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@supabase/supabase-js": "^2.39.0",
+    "express": "^4.18.2",
+    "dotenv": "^16.3.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

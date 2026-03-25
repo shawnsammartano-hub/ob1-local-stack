@@ -1,0 +1,36 @@
+{
+  "name": "ob1-local-stack",
+  "version": "1.0.0",
+  "description": "Local MCP proxy for Open Brain remote server - enables Claude Desktop connection",
+  "type": "module",
+  "main": "proxy-server.js",
+  "bin": {
+    "open-brain-proxy": "./proxy-server.js"
+  },
+  "scripts": {
+    "start": "node proxy-server.js",
+    "test": "echo 'Send {\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"params\":{},\"id\":1}' | node proxy-server.js"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "open-brain",
+    "claude",
+    "perplexity",
+    "semantic-memory",
+    "vector-embeddings"
+  ],
+  "author": "Shawn Sammartano",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shawnsammartano-hub/ob1-local-stack.git"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "node-fetch": "^3.3.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
